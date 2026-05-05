@@ -1,0 +1,140 @@
+#este código esta realizado con base de Colab de Google. Considera agregar comentarios
+
+import pandas as pd
+import pytz
+import matplotlib.pyplot as plt
+import numpy as np
+from google.colab import files
+
+
+print("Por favor, sube archivo(s) JSON:")
+uploaded = files.upload()
+
+df = pd.DataFrame()
+
+# Leer todos los archivos JSON 
+for filename in uploaded.keys():
+    if filename.endswith('.json'):
+        temp = pd.read_json(filename)
+        df = pd.concat([df, temp], ignore_index=True)
+        print(f"Archivo procesado: {filename}")
+
+# Mostrar dimensiones y datos
+print(f"\nDimensiones del DataFrame: {df.shape}")
+print("\nPrimeras filas del DataFrame:")
+display(df.head())
+
+time_column   = 'ts'
+artist_column = 'master_metadata_album_artist_name'
+track_column  = 'master_metadata_track_name'
+ms_column     = 'ms_played'
+
+df[time_column] = pd.to_datetime(df[time_column], utc=True)
+
+
+my_tz = pytz.timezone("America/Mexico_City")
+
+df[time_column] = df[time_column].dt.tz_convert(my_tz)
+
+# Ordenar datos cronológicamente
+df.sort_values(by=time_column, inplace=True)
+
+# Extrae año
+df['year'] = df[time_column].dt.year
+
+
+#print(f"\nPrimeras filas con timestamp y año:")
+#print(df[[time_column, 'year']].head())
+
+# Artistas más escuchados
+print("\n Top Artistas (CAMBIA por año elegido)")
+
+if artist_column in df.columns:
+    df_2024 = df[df['year'] == 2024].copy()
+    df_2024 = df_2024[df_2024[artist_column].notna()]
+
+    top_artists = df_2024.groupby(artist_column)[artist_column].count().sort_values(ascending=False)
+    print(top_artists.head(20))
+else:
+    print(f"Columna '{artist_column}' no encontrada. Columnas disponibles:")
+    print(list(df.columns))
+
+# Tiempo escuchado por artista
+TOP_N = 10
+
+time_by_artist_min = (df_2024
+                      .groupby(artist_column)[ms_column]
+                      .sum()
+                      .sort_values(ascending=False)
+                      / 60_000)
+
+top    = time_by_artist_min.head(TOP_N).copy()
+others = time_by_artist_min.iloc[TOP_N:].sum()
+if others > 0:
+    top["Otros"] = others
+
+colors = plt.cm.tab20.colors[:len(top)]
+
+fig, ax = plt.subplots(figsize=(10, 7))
+wedges, _, autotexts = ax.pie(
+    top,
+    labels=None,
+    autopct=lambda p: f"{p:.1f}%" if p >= 2 else "",
+    startangle=140,
+    colors=colors,
+    pctdistance=0.82,
+    wedgeprops=dict(linewidth=0.8, edgecolor="white")
+)
+for at in autotexts:
+    at.set_fontsize(8)
+
+legend_labels = [f"{name}  ({mins:,.0f} min)"
+                 for name, mins in zip(top.index, top.values)]
+ax.legend(wedges, legend_labels,
+          title="Artista", loc="center left",
+          bbox_to_anchor=(1.02, 0.5), fontsize=9)
+ax.set_title(f"Tiempo escuchado por artista – Top {TOP_N} (2024)",
+             fontsize=14, fontweight="bold", pad=20)
+
+plt.tight_layout()
+plt.show()
+
+# Canciones más escuchadas
+TOP_T = 15
+
+df_2024['track_label'] = (df_2024[track_column].str[:35]
+                          + " – "
+                          + df_2024[artist_column].str[:20])
+
+top_tracks_min = (df_2024
+                  .groupby('track_label')[ms_column]
+                  .sum()
+                  .sort_values(ascending=False)
+                  / 60_000)
+
+track_top = top_tracks_min.head(TOP_T)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+
+bars = ax.bar(range(len(track_top)),
+              track_top.values,
+              color=plt.cm.plasma(np.linspace(0.15, 0.85, len(track_top))),
+              edgecolor="white", linewidth=0.6)
+
+for bar, val in zip(bars, track_top.values):
+    ax.text(bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + track_top.max() * 0.01,
+            f"{val:,.0f}", ha="center", va="bottom", fontsize=7.5)
+
+ax.set_xticks(range(len(track_top)))
+ax.set_xticklabels(track_top.index, rotation=38, ha="right", fontsize=8.5)
+ax.set_ylabel("Minutos escuchados", fontsize=11)
+ax.set_xlabel("Canción – Artista", fontsize=11)
+ax.set_title(f"Canciones más escuchadas – Top {TOP_T} (CAMBIAR POR AÑO ELEGIDO)",
+             fontsize=14, fontweight="bold")
+ax.yaxis.grid(True, linestyle="--", alpha=0.5)
+ax.set_axisbelow(True)
+ax.spines[["top", "right"]].set_visible(False)
+
+plt.tight_layout()
+plt.show()
